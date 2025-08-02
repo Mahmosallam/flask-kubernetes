@@ -1,0 +1,23 @@
+replicaCount: 1
+namespace: sallam
+
+image:
+  repository: osos3/sallam
+  pullPolicy: Always
+  tag: ${ github.sha }
+
+service:
+  type: LoadBalancer
+  port: 80
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+labels:
+  place: iti
+  name: bashar

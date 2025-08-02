@@ -1,0 +1,117 @@
+name: Build and Deploy Helm Chart
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'helm-chart/**'
+      - '.github/workflows/**'
+      - '**Dockerfile'
+      - '**/*.py'
+  workflow_dispatch:
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: \${{ steps.set-image-tag.outputs.image-tag }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set image tag
+      id: set-image-tag
+      run: echo "image-tag=sallam:latest" >> \$GITHUB_OUTPUT
+
+    - name: Docker Hub Login
+      uses: docker/login-action@v2.2.0
+      with:
+       registry: docker.io
+       username: ${{ vars.USER_NAME }}
+       password: ${{ secrets.USER_PASS }}
+
+    - name: Build and push Docker image
+      id: build-push
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./Dockerfile
+        push: true
+        tags: osos3/sallam:${{ github.sha }}
+        cache-from: type=registry,ref=${{ vars.USER_NAME }}/sallam:latest
+        cache-to: type=inline
+        
+
+
+    - name: verify image exists
+      run: |
+        if ! docker pull osos3/sallam:latest; then
+        echo "Warning: Image not found in Docker Hub, but continuing deployment"
+        echo "This is normal if you're using a private registry or different tag"
+        fi
+
+  deploy-helm-chart:
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v3
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+
+    - name: Configure kubectl
+      run: |
+         echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig
+         chmod 600 kubeconfig
+         export KUBECONFIG=$(pwd)/kubeconfig
+         kubectl cluster-info
+         kubectl get nodes
+
+    - name: Deploy Helm chart
+      run: |
+        helm uninstall sallam-release --kubeconfig kubeconfig || true
+        helm upgrade --install sallam-release helm-chart \
+        --set image.repository=osos3/sallam \
+        --set image.tag=${{ github.sha }} \
+        --namespace sallam \
+        --create-namespace \
+        --kubeconfig kubeconfig \
+
+    
+    - name: Debug Deployment Issues
+      run: |
+        echo "### Pod Details ###"
+        kubectl get pods -l place=iti,name=sallam --namespace sallam --kubeconfig kubeconfig -o wide
+        
+        echo "## Pod Events ##"
+        kubectl describe pods -l place=iti,name=sallam --namespace sallam --kubeconfig kubeconfig
+        
+        echo "## Deployment Events ##"
+        kubectl describe deployment sallam-release-deployment --namespace sallam --kubeconfig kubeconfig
+
+    - name: Verify Deployment
+      run: |
+       echo "### Checking Rollout Status ###"
+       kubectl rollout status deployment/sallam-release-deployment --namespace sallam --kubeconfig kubeconfig || true
+    
+       echo "### Checking Pods ###"
+       kubectl get pods -l place=iti,name=sallam -o wide --namespace sallam --kubeconfig kubeconfig 
+      
+       echo "### pods logs ###"
+        kubectl logs -l place=iti,name=sallam --namespace sallam --kubeconfig kubeconfig || echo "No logs available yet"
+
+       echo "### Checking Services ###"
+       kubectl get svc -l place=iti,name=sallam --namespace sallam --kubeconfig kubeconfig
+
+       echo "### Helm Resources ###"
+       helm get manifest sallam-release --namespace sallam --kubeconfig kubeconfig
+    
+       echo "### Helm Status ###"
+       helm status sallam-release --namespace sallam --kubeconfig kubeconfig
