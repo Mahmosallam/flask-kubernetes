@@ -84,7 +84,7 @@ jobs:
 
     - name: ✅ Check Chart.yaml exists
       run: |
-        ls -l ./helm-chart/chart.yaml
+        ls -l ./helm-chart/Chart.yaml
 
     - name: Deploy Helm chart
       run: |
