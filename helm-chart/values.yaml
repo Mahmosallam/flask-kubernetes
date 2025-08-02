@@ -4,7 +4,9 @@ namespace: sallam
 image:
   repository: osos3/sallam
   pullPolicy: Always
-  tag: ${ github.sha }
+  #tag: ${ github.sha }
+  tag: ""
+
 
 service:
   type: LoadBalancer

@@ -52,9 +52,12 @@ jobs:
         fi
 
   deploy-helm-chart:
-    needs: build-and-push-image
-    runs-on: ubuntu-latest
-    steps:
+   needs: build-and-push-image
+   runs-on: ubuntu-latest
+   env:
+     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+   steps:
     - name: Checkout code
       uses: actions/checkout@v3
 
@@ -68,50 +71,58 @@ jobs:
 
     - name: Configure kubectl
       run: |
-         echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig
-         chmod 600 kubeconfig
-         export KUBECONFIG=$(pwd)/kubeconfig
-         kubectl cluster-info
-         kubectl get nodes
+        echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig
+        chmod 600 kubeconfig
+        export KUBECONFIG=$(pwd)/kubeconfig
+        kubectl cluster-info
+        kubectl get nodes
+
+    - name: 🔍 Debug - Show files
+      run: |
+        pwd
+        ls -R
+
+    - name: ✅ Check Chart.yaml exists
+      run: |
+        ls -l ./helm-chart/Chart.yaml
 
     - name: Deploy Helm chart
       run: |
         helm uninstall sallam-release --kubeconfig kubeconfig || true
-        helm upgrade --install sallam-release helm-chart \
-        --set image.repository=osos3/sallam \
-        --set image.tag=${{ github.sha }} \
-        --namespace sallam \
-        --create-namespace \
-        --kubeconfig kubeconfig \
+        helm upgrade --install sallam-release ./helm-chart \
+          --set image.repository=osos3/sallam \
+          --set image.tag=${{ github.sha }} \
+          --namespace sallam \
+          --create-namespace \
+          --kubeconfig kubeconfig
 
-    
     - name: Debug Deployment Issues
       run: |
         echo "### Pod Details ###"
         kubectl get pods -l place=iti,name=sallam --namespace sallam --kubeconfig kubeconfig -o wide
-        
+
         echo "## Pod Events ##"
         kubectl describe pods -l place=iti,name=sallam --namespace sallam --kubeconfig kubeconfig
-        
+
         echo "## Deployment Events ##"
         kubectl describe deployment sallam-release-deployment --namespace sallam --kubeconfig kubeconfig
 
     - name: Verify Deployment
       run: |
-       echo "### Checking Rollout Status ###"
-       kubectl rollout status deployment/sallam-release-deployment --namespace sallam --kubeconfig kubeconfig || true
-    
-       echo "### Checking Pods ###"
-       kubectl get pods -l place=iti,name=sallam -o wide --namespace sallam --kubeconfig kubeconfig 
-      
-       echo "### pods logs ###"
+        echo "### Checking Rollout Status ###"
+        kubectl rollout status deployment/sallam-release-deployment --namespace sallam --kubeconfig kubeconfig || true
+
+        echo "### Checking Pods ###"
+        kubectl get pods -l place=iti,name=sallam -o wide --namespace sallam --kubeconfig kubeconfig 
+
+        echo "### Pods logs ###"
         kubectl logs -l place=iti,name=sallam --namespace sallam --kubeconfig kubeconfig || echo "No logs available yet"
 
-       echo "### Checking Services ###"
-       kubectl get svc -l place=iti,name=sallam --namespace sallam --kubeconfig kubeconfig
+        echo "### Checking Services ###"
+        kubectl get svc -l place=iti,name=sallam --namespace sallam --kubeconfig kubeconfig
 
-       echo "### Helm Resources ###"
-       helm get manifest sallam-release --namespace sallam --kubeconfig kubeconfig
-    
-       echo "### Helm Status ###"
-       helm status sallam-release --namespace sallam --kubeconfig kubeconfig
+        echo "### Helm Resources ###"
+        helm get manifest sallam-release --namespace sallam --kubeconfig kubeconfig
+
+        echo "### Helm Status ###"
+        helm status sallam-release --namespace sallam --kubeconfig kubeconfig
